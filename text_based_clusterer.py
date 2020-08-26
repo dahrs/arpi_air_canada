@@ -85,9 +85,7 @@ if __name__ == "__main__":
 ##    exit()
 
     data = defect_df_train_notnull.to_dict(orient='index')
-    mel = mel_df.to_dict(orient='index')
 
-    data_with_mel = dict()
     ngram_defect_document_count = dict()
     ngram_resolution_document_count = dict()
 
@@ -95,24 +93,18 @@ if __name__ == "__main__":
         for n in ngram_choices:
             table[n] = dict()
 
-    unknown_mel_numbers = set()
-    
     for key, row in tqdm(data.items()):
         token_list = process_row('defect_description', row, ngram_defect_document_count)
-#        token_list = process_row('resolution_description', row, ngram_resolution_document_count)
+        token_list = process_row('resolution_description', row, ngram_resolution_document_count)
 
-        row['mel_number'] = str(row['mel_number'])
-        if row['mel_number'] in mel:
-            data_with_mel[key] = row
-        else:
-            unknown_mel_numbers.add(row['mel_number'])
+    for table in [ngram_defect_document_count, ngram_resolution_document_count]:
+        for n, sub_table in table:
+            for ng, count in sub_table:
+                sub_table[ng] /= len(data)
 
-    for number in unknown_mel_numbers:
-        print(f"{number} found in main dataframe but not in mel list")
-
-    print(ngram_defect_document_count)
-
-    # spell check texts
+    for key, row in tqdm(data.items()):
+        add_tfidf_vector( process_row('defect_description', row, ngram_defect_document_count)
+        token_list = process_row('resolution_description', row, ngram_resolution_document_count)
 
     # extract relevant n-grams
 
