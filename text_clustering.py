@@ -44,7 +44,7 @@ def produce_recurrent_clustering(labels, dataset, split):
     last_timestamp = None
     last_ac = None
     for i in range(split[0], split[1]):
-        defect_type, defect, defect_item, timestamp, ac, recurrent = dataset['features'][i]
+        defect_type, defect, defect_item, chapter, section, timestamp, ac, recurrent = dataset['features'][i]
         identifier = f'{defect_type}-{defect}-{defect_item}'
         label = labels[i]
 
@@ -73,7 +73,7 @@ def produce_recurrent_clustering(labels, dataset, split):
                      cluster.add(current['id'])
                      final_clusters.append(cluster)
                      del candidate[:3]
-                elif len(candidate) >= 2 and candidate[1]['time'] - current['time'] <= pandas.Timedelta('4d'):
+                elif len(candidate) >= 2 and candidate[1]['time'] - current['time'] <= pandas.Timedelta('3d'):
                      cluster = set([e['id'] for e in candidate[:2]])
                      cluster.add(current['id'])
                      final_clusters.append(cluster)
@@ -144,9 +144,10 @@ def load_dataset(filename: str, spelling_filename: str = None):
     target = list()
     target_names = [None]
     features = list()
-    dataset_concat = { 'data': list(), 'target': target, 'target_names': target_names, 'features': features }
-    dataset_defect = { 'data': list(), 'target': target, 'target_names': target_names, 'features': features }
-    dataset_resolution = { 'data': list(), 'target': target, 'target_names': target_names, 'features': features }
+    index = dict()
+    dataset_concat = { 'data': list(), 'target': target, 'target_names': target_names, 'features': features, 'index': index }
+    dataset_defect = { 'data': list(), 'target': target, 'target_names': target_names, 'features': features, 'index': index }
+    dataset_resolution = { 'data': list(), 'target': target, 'target_names': target_names, 'features': features, 'index': index }
     
     for row in tqdm(data):
         defect = " ".join(process_row('defect_description', row, spelling))
@@ -154,7 +155,10 @@ def load_dataset(filename: str, spelling_filename: str = None):
         dataset_defect['data'].append(defect)
         dataset_resolution['data'].append(resolution)
         dataset_concat['data'].append(defect + ' ' + resolution)
-        features.append((row['defect_type'], row['defect'], row['defect_item'], row['reported_datetime'], row['ac'], row['recurrent']))
+        ident = f"{row['defect_type']}-{row['defect']}-{row['defect_item']}"
+        assert(ident not in index)
+        index[ident] = len(features)
+        features.append((row['defect_type'], row['defect'], row['defect_item'], row['chapter'], row['section'], row['reported_datetime'], row['ac'], row['recurrent']))
 
         if type(row['reliable_chapter']) is int and type(row['reliable_section']) is int:
             ata = f"{row['reliable_chapter']} {row['reliable_section']}"  # also allow chapter only clustering?
@@ -194,6 +198,7 @@ op.add_option("--verbose",
               action="store_true", dest="verbose", default=False,
               help="Print progress reports inside k-means algorithm.")
 op.add_option("--output", help="Ouptut log-like.")
+op.add_option("--clustering-output", help="Where to output the best system's predicted clusters.")
 
 #print(__doc__)
 #op.print_help()
@@ -288,7 +293,7 @@ def clustering(n_clusters, dataset, minibatch, ngrams):
         km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
                              init_size=1000, batch_size=1000, verbose=opts.verbose)
     else:
-        km = KMeans(n_clusters=true_k, init='k-means++', max_iter=100, n_init=1,
+        km = KMeans(n_clusters=true_k, init='k-means++', max_iter=1000, n_init=1,
                     verbose=opts.verbose)
     
     print("Clustering sparse data with %s" % km)
@@ -327,7 +332,25 @@ def clustering(n_clusters, dataset, minibatch, ngrams):
     # cluster2ata = map_clusters(km.labels_, dataset, split['train'], dataset['target_names'])
     clusters = produce_recurrent_clustering(km.labels_, dataset, split['train'])
     
-    return arpi_evaluator.evaluate_recurrent_defects(corpus[0], clusters)
+    return arpi_evaluator.evaluate_recurrent_defects(corpus[0], clusters), clusters
+
+
+def export_clustering(filename: str, dataset: dict, clusters: list):
+    mapping = ["<NA>"] * len(dataset['features'])
+    print("Saving results...", end="")
+    for i, c in enumerate(clusters):
+        for ident in c:
+            mapping[dataset['index'][ident]] = i
+
+    with open(filename, 'w') as fout:
+        for i in range(len(dataset['features'])):
+            print_list = list(dataset['features'][i])
+            print_list.append(mapping[i])
+            print_list.append(dataset['data'][i])
+
+            print("\t".join([str(e) for e in print_list]), file=fout)
+    print("  done.")
+
 
 out = sys.stdout
 if opts.output is not None:
@@ -335,19 +358,24 @@ if opts.output is not None:
 
 datasets = [dataset_defect, dataset_resolution, dataset_concat]
 results = list()
-for minibatch in [True, False]:
+for minibatch in [False, True]:
     for ngrams in [(1,1), (1,2), (1,3), (2,2)]:
         for dataset_index in range(len(datasets)):
-            for n_clusters in range(120, 620, 50):
-                 full_eval = clustering(n_clusters, datasets[dataset_index], minibatch, ngrams)
-                 results.append({'full_eval': full_eval, 'params':{'minibatch': minibatch, 'ngrams': ngrams, 'dataset': dataset_index, 'n_clusters': n_clusters}})
-                 results = sorted(results, key=lambda e:e['full_eval']['ari_score'], reverse=True)
+            for n_clusters in range(120, 480, 20):
+                 full_eval, clusters = clustering(n_clusters, datasets[dataset_index], minibatch, ngrams)
+                 params = {'minibatch': minibatch, 'ngrams': ngrams, 'dataset': dataset_index, 'n_clusters': n_clusters}
+                 res = {'full_eval': full_eval, 'params': params}
+                 results.append(res)
+                 results = sorted(results, key=lambda e:e['full_eval']['completeness'], reverse=True)
                  best = dict()
                  best['ari_score'] = results[0]['full_eval']['ari_score']
                  best['homogeneity'] = results[0]['full_eval']['homogeneity']
                  best['completeness'] = results[0]['full_eval']['completeness']
                  best['v_measure'] = results[0]['full_eval']['v_measure']
-                 print(f"\nCURRENT BEST: {best} {results[0]['params']}", file=out)
+                 print(f"Just ran {params}")
+                 print(f"CURRENT BEST: {best} {results[0]['params']}", file=out)
+                 if opts.clustering_output is not None and results[0] == res:
+                     export_clustering(opts.clustering_output, datasets[dataset_index], clusters)
                  out.flush()
 
 #print(eval_)
