@@ -91,7 +91,7 @@ def process_row(col_name: str, row: dict, spelling: dict):
     for token in txt.split():
         if spell.token_is_word_like(token):
             if token in spelling:
-                token_list.append(spelling[token])
+                token_list.append(spelling[token][0])
             else:
                 token_list.append(token)
     row[col_name + '_tokens'] = token_list
@@ -193,6 +193,7 @@ op.add_option("--n-features", type=int, default=10000,
 op.add_option("--verbose",
               action="store_true", dest="verbose", default=False,
               help="Print progress reports inside k-means algorithm.")
+op.add_option("--output", help="Ouptut log-like.")
 
 #print(__doc__)
 #op.print_help()
@@ -328,6 +329,10 @@ def clustering(n_clusters, dataset, minibatch, ngrams):
     
     return arpi_evaluator.evaluate_recurrent_defects(corpus[0], clusters)
 
+out = sys.stdout
+if opts.output is not None:
+    out = open(opts.output, 'w')
+
 datasets = [dataset_defect, dataset_resolution, dataset_concat]
 results = list()
 for minibatch in [True, False]:
@@ -337,7 +342,14 @@ for minibatch in [True, False]:
                  full_eval = clustering(n_clusters, datasets[dataset_index], minibatch, ngrams)
                  results.append({'full_eval': full_eval, 'params':{'minibatch': minibatch, 'ngrams': ngrams, 'dataset': dataset_index, 'n_clusters': n_clusters}})
                  results = sorted(results, key=lambda e:e['full_eval']['ari_score'], reverse=True)
-                 print(f"\nCURRENT BEST: {results[0]['full_eval']['ari_score']} {results[0]['params']}")
+                 best = dict()
+                 best['ari_score'] = results[0]['full_eval']['ari_score']
+                 best['homogeneity'] = results[0]['full_eval']['homogeneity']
+                 best['completeness'] = results[0]['full_eval']['completeness']
+                 best['v_measure'] = results[0]['full_eval']['v_measure']
+                 print(f"\nCURRENT BEST: {best} {results[0]['params']}", file=out)
+                 out.flush()
+
 #print(eval_)
 #print(eval_.keys())
 #print(f"homogeneity {eval_['homogeneity']}")
