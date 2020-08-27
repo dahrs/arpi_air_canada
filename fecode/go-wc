@@ -1,0 +1,22 @@
+#!/bin/csh -f
+
+# to show how to produce wordclouds from the clusters in Fab's pkl (so the recurrent column is beoing used to check for clusters)
+# code in two parts: 
+#  - python3 fecluster_stats.py <fab's pikle> --pickle="output pickle"
+#    this should generate a lot of outputs and will generate bow for each ata chapter-section into a pickle of your own
+#  - python3 fewordclouds.py --key=25-60 --stop --char --dirty <output pickle>
+#    will output a wc and generate a png of it in directory img that must exists
+# quite shaky I admit, badely designed, but it works
+
+# this is how I generated the two png files in img
+
+set pickle = ../../../Data_nobackup/OneDrive_1_2020-08-17/aircan-data-split-clean.pkl
+set output = ../../../Data_nobackup/models/ata.pkl
+
+# must be done once to generate $output
+python3 fecluster_stats.py $pickle --pickle=$output
+
+# then generate ata-specific word clouds
+# !! directory img must exists prior to call this
+python3 fewordclouds.py --key=25-60 --stop --char --dirty $out
+python3 fewordclouds.py --key=38-30 --stop --char --dirty $out

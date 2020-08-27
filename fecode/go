@@ -1,0 +1,50 @@
+#!/bin/csh -f
+#
+# example of how to find acronyms and there candidate resolution 
+#
+# 3 python components glued by some shell script:
+# - fedump reads Fab's pickle file and outpout the description on stdout (note: you can choose your database or column) 
+# - fekwic reads lines from stdin and search for words (letter+) and outputs on stdout the left context of matches (note: you can set the context size)
+# - feacro reads acro/context lines (tabular separated) and outputs candidate resolution (note: you can control #candidates)
+#
+# this is how I ran it:
+# go ../Data_nobackup/OneDrive_1_2020-08-17/aircan-data-split-clean.pkl >! samll_ressources/acronyms  
+#
+
+# ---------------
+# a few globals (but defaults ones should be ok)
+# ---------------
+
+# Fab's pickle:
+#set pickle = ../Data_nobackup/OneDrive_1_2020-08-17/aircan-data-split-clean.pkl
+set pickle = $1
+# which df to parse:
+set base = train
+# min/max length of an acronym:
+set min = 2
+set max = 5
+# size of the kwic context:
+set size = 5
+# max resolutions per acronym:
+set top = 3 
+
+goto full 
+
+# the beast:
+beast:
+python3 fedump.py --base=$base $pickle | \
+        python3 fekwic.py --alpha --min=$min --max=$max --size=$size | \
+        sort | uniq -c | sort -k1,1nr  | sed -e 's/^ *[0-9]* //1' | \
+        python3 feacro.py --top=$top --min=1000
+exit
+
+
+# but in practice, you may want to filter, so it might look like this: 
+full:
+python3 fedump.py --base=$base $pickle | \
+        python3 fekwic.py --alpha --min=$min --max=$max --size=$size | \
+        sort | uniq -c | sort -k1,1nr  | sed -e 's/^ *[0-9]* //1' | \
+        python3 feacro.py --top=$top --min=1000 | \
+        awk -F'\t' 'length($1) < length($2)' | \
+        sort | uniq -c | sort -k1,1nr -k2,2 
+exit(0)

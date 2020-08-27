@@ -14,13 +14,14 @@ import arpi_evaluator
 
 def main():
     # normalization possibilities, add your functions here
-    NORMALIZATION_FUNCTIONS = {'none': lambda x: x, 'acro_replacement': replace_acros}
+    NORMALIZATION_FUNCTIONS = {'none': lambda x: x, 'acro_replacement': replace_acros, 'spel_replacement': replace_spel}
 
     # parse args
     parser = argparse.ArgumentParser("A sample program to test text normalization.")
     parser.add_argument("input_file", help="A pickle input file, e.g. aircan-data-split-clean.pkl.")
     parser.add_argument("normalization_method", help="Normalization method.", choices=NORMALIZATION_FUNCTIONS.keys())
     parser.add_argument('--reliable', '-r', action='store_true', help='Use relabeled reliable ATA chapter/sections only.')
+    parser.add_argument('--full', '-f', action='store_true', help='Use all dataset')
 
     args = parser.parse_args()
 
@@ -49,6 +50,39 @@ def main():
             df['normalized_desc'] = df.defect_description.apply(normalization_function)
 
         train_df, dev_df, test_df = defect_df_train, defect_df_dev, defect_df_test
+    elif args.full:
+        print(defect_df_train)
+        defect_df_train = defect_df_train.dropna(subset=['defect_description'])
+        # drop recurrent defects with section 0 (it is a catch-all section that indicates a certain sloppiness when labeling
+        print(list(defect_df_train))
+        defect_df_train = defect_df_train[defect_df_train.section != 0]
+        # add a label made from the concat of the chapter and section -> chap-sec, this is what we want to predict
+        defect_df_train['label'] = defect_df_train[['chapter', 'section']].apply(
+            lambda data: f"{data['chapter']}-{data['section']}", axis=1)
+        # normalize text
+        defect_df_train['normalized_desc'] = defect_df_train.defect_description.apply(normalization_function)
+
+        defect_df_test = defect_df_test.dropna(subset=['defect_description'])
+        # drop recurrent defects with section 0 (it is a catch-all section that indicates a certain sloppiness when labeling
+        defect_df_test = defect_df_test[defect_df_test.section != 0]
+        # add a label made from the concat of the chapter and section -> chap-sec, this is what we want to predict
+        defect_df_test['label'] = defect_df_test[['chapter', 'section']].apply(
+            lambda data: f"{data['chapter']}-{data['section']}", axis=1)
+        # normalize text
+        defect_df_test['normalized_desc'] = defect_df_test.defect_description.apply(normalization_function)
+
+        defect_df_dev = defect_df_dev.dropna(subset=['defect_description'])
+        # drop recurrent defects with section 0 (it is a catch-all section that indicates a certain sloppiness when labeling
+        defect_df_dev = defect_df_dev[defect_df_dev.section != 0]
+        # add a label made from the concat of the chapter and section -> chap-sec, this is what we want to predict
+        defect_df_dev['label'] = defect_df_dev[['chapter', 'section']].apply(
+            lambda data: f"{data['chapter']}-{data['section']}", axis=1)
+        # normalize text
+        defect_df_dev['normalized_desc'] = defect_df_dev.defect_description.apply(normalization_function)
+
+        # split corpus
+        train_df, dev_df, test_df = np.split(defect_df_train.sample(frac=1, random_state=42),
+                                             [int(.6 * len(defect_df_train)), int(.8 * len(defect_df_train))])
     else:  # we will be working with trax dataset
         # remove empty descriptions
         trax_df_clean = trax_df.dropna(subset=['defect_description'])
@@ -77,9 +111,11 @@ def main():
     precision = precision_score(test_df.label, predictions, average='micro')
     print(f"Precision is {precision * 100:.2f}%")
 
-
+                                                                            
 __acro_map: dict = None
 __acro_keys: set = None
+__spel_map: dict = None
+__spel_keys: set = None
 
 
 def load_acro_map():
@@ -110,6 +146,32 @@ def replace_acros(text: str):
 
     return ' '.join(toks)
 
+def load_spell_map():
+    global __spel_map, __spel_keys
+    spel_file = os.path.join(os.path.dirname(__file__), 'small_resources', 'spelling_full.txt')
+    with open(spel_file, 'rt', encoding='utf-8') as fin:
+        lines = fin.readlines()
+
+    __spel_map = dict()
+    for line in lines:
+        parts = line.strip().split('\t')
+        if len(parts) == 3 and parts[2]==2:
+            __spel_map[parts[0].upper()] = parts[1].upper()
+
+    __spel_keys = set(__spel_map.keys())
+
+def replace_spel(text: str):
+    assert type(text) == str, "Invalid type " + str(type(text)) + " of value " + str(text)
+
+    if __spel_map is None:
+        load_spell_map()
+
+    toks = re.split(r'[\s\.,;/:\(\)-]', text)  # do not do this
+    for i, tok in enumerate(toks):
+        if tok in __spel_keys:
+            toks[i] = __spel_map.get(tok)
+
+    return ' '.join(toks)
 
 if __name__ == '__main__':
     main()
