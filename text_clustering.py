@@ -233,16 +233,16 @@ if len(args) > 0:
 dataset_defect, dataset_resolution, dataset_concat, split, corpus = load_dataset("aircan-data-split-clean.pkl", "small_resources/spelling_full.txt")
 
 def clustering(n_clusters, dataset, minibatch, ngrams):
-    print("%d documents" % len(dataset['data']))
-    print("%d categories" % len(dataset['target_names']))
-    print()
+#    print("%d documents" % len(dataset['data']))
+#    print("%d categories" % len(dataset['target_names']))
+#    print()
     
     labels = dataset['target']
     true_k = np.unique(labels).shape[0]
     true_k = n_clusters
     
-    print("Extracting features from the training dataset "
-          "using a sparse vectorizer")
+#    print("Extracting features from the training dataset "
+#          "using a sparse vectorizer")
     t0 = time()
     if opts.use_hashing:
         if opts.use_idf:
@@ -261,9 +261,9 @@ def clustering(n_clusters, dataset, minibatch, ngrams):
                                      use_idf=opts.use_idf, ngram_range=ngrams)
     X = vectorizer.fit_transform(dataset['data'])
     
-    print("done in %fs" % (time() - t0))
-    print("n_samples: %d, n_features: %d" % X.shape)
-    print()
+#    print("done in %fs" % (time() - t0))
+#    print("n_samples: %d, n_features: %d" % X.shape)
+#    print()
     
     if opts.n_components:
         print("Performing dimensionality reduction using LSA")
@@ -296,7 +296,7 @@ def clustering(n_clusters, dataset, minibatch, ngrams):
         km = KMeans(n_clusters=true_k, init='k-means++', max_iter=1000, n_init=1,
                     verbose=opts.verbose)
     
-    print("Clustering sparse data with %s" % km)
+#    print("Clustering sparse data with %s" % km)
     t0 = time()
     km.fit(X)
     #print("done in %0.3fs" % (time() - t0))
@@ -312,9 +312,9 @@ def clustering(n_clusters, dataset, minibatch, ngrams):
     #
     #print()
     
-    
+    top_terms = list()
     if not opts.use_hashing:
-        print("Top terms per cluster:")
+#        print("Top terms per cluster:")
     
         if opts.n_components:
             original_space_centroids = svd.inverse_transform(km.cluster_centers_)
@@ -324,15 +324,22 @@ def clustering(n_clusters, dataset, minibatch, ngrams):
     
         terms = vectorizer.get_feature_names()
         for i in range(true_k):
-            print("Cluster %d:" % i, end='')
+#            print("Cluster %d:" % i, end='')
+            cluster = (i, list())
             for ind in order_centroids[i, :10]:
-                print(' %s' % terms[ind], end='')
-            print()
+                cluster[1].append(terms[ind])
+#                print(' %s' % terms[ind], end='')
+#            print()
+            top_terms.append(cluster)
     
     # cluster2ata = map_clusters(km.labels_, dataset, split['train'], dataset['target_names'])
-    clusters = produce_recurrent_clustering(km.labels_, dataset, split['train'])
     
-    return arpi_evaluator.evaluate_recurrent_defects(corpus[0], clusters), clusters
+    clusters = produce_recurrent_clustering(km.labels_, dataset, split['train'])
+    train_eval = arpi_evaluator.evaluate_recurrent_defects(corpus[0], clusters)
+
+    clusters = produce_recurrent_clustering(km.labels_, dataset, split['test'])
+    test_eval = arpi_evaluator.evaluate_recurrent_defects(corpus[2], clusters)
+    return train_eval, test_eval, clusters, top_terms
 
 
 def export_clustering(filename: str, dataset: dict, clusters: list):
@@ -356,31 +363,33 @@ out = sys.stdout
 if opts.output is not None:
     out = open(opts.output, 'w')
 
-datasets = [dataset_defect, dataset_resolution, dataset_concat]
+datasets = [dataset_concat, dataset_defect, dataset_resolution]
 results = list()
 for minibatch in [False, True]:
-    for ngrams in [(1,1), (1,2), (1,3), (2,2)]:
+    for ngrams in [(1,1), (1,2), (2,2)]:
         for dataset_index in range(len(datasets)):
-            for n_clusters in range(120, 480, 20):
-                 full_eval, clusters = clustering(n_clusters, datasets[dataset_index], minibatch, ngrams)
+            for n_clusters in [800, 900, 1000, 1100]: #[220, 225, 230, 300, 360, 370, 380, 385, 390, 395, 400, 405, 410, 415, 420, 425, 430, 435, 440, 445, 450, 460, 480, 500, 600, 700, 800]:
+                 train_eval, test_eval, clusters, top_terms = clustering(n_clusters, datasets[dataset_index], minibatch, ngrams)
                  params = {'minibatch': minibatch, 'ngrams': ngrams, 'dataset': dataset_index, 'n_clusters': n_clusters}
-                 res = {'full_eval': full_eval, 'params': params}
-                 results.append(res)
-                 results = sorted(results, key=lambda e:e['full_eval']['completeness'], reverse=True)
-                 best = dict()
-                 best['ari_score'] = results[0]['full_eval']['ari_score']
-                 best['homogeneity'] = results[0]['full_eval']['homogeneity']
-                 best['completeness'] = results[0]['full_eval']['completeness']
-                 best['v_measure'] = results[0]['full_eval']['v_measure']
-                 print(f"Just ran {params}")
-                 print(f"CURRENT BEST: {best} {results[0]['params']}", file=out)
-                 if opts.clustering_output is not None and results[0] == res:
-                     export_clustering(opts.clustering_output, datasets[dataset_index], clusters)
-                 out.flush()
+                 train_res = dict()
+                 train_res['ari_score']    = train_eval['ari_score']
+                 train_res['homogeneity']  = train_eval['homogeneity']
+                 train_res['completeness'] = train_eval['completeness']
+                 train_res['v_measure']    = train_eval['v_measure']
 
-#print(eval_)
-#print(eval_.keys())
-#print(f"homogeneity {eval_['homogeneity']}")
-#print(f"completeness {eval_['completeness']}")
-#print(f"v_measure {eval_['v_measure']}")
-#print(f"ari_score {eval_['ari_score']}")
+                 test_res = dict()
+                 test_res['ari_score']    = test_eval['ari_score']
+                 test_res['homogeneity']  = test_eval['homogeneity']
+                 test_res['completeness'] = test_eval['completeness']
+                 test_res['v_measure']    = test_eval['v_measure']
+
+                 print(f"Just ran {params}")
+                 res = {'train': train_res, 'test': test_res, 'params': params}
+                 if len(results) == 0 or results[0]['train']['completeness'] < res['train']['completeness']:
+                     print(f"New best: {res}")
+                     if opts.clustering_output is not None:
+                         export_clustering(opts.clustering_output, datasets[dataset_index], clusters)
+                 results.append(res)
+                 results = sorted(results, key=lambda e:e['train']['completeness'], reverse=True)
+
+                 out.flush()
